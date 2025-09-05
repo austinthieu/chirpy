@@ -21,8 +21,8 @@ type Chirp struct {
 
 func (cfg *apiConfig) handleCreateChirp(rw http.ResponseWriter, req *http.Request) {
 	type parameters struct {
-		Body   string `json:"body"`
-		UserID string `json:"user_id"`
+		Body   string    `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
 	}
 
 	decoder := json.NewDecoder(req.Body)
@@ -30,12 +30,6 @@ func (cfg *apiConfig) handleCreateChirp(rw http.ResponseWriter, req *http.Reques
 	err := decoder.Decode(&params)
 	if err != nil {
 		respondWithError(rw, 500, "Couldn't decode parameters", err)
-		return
-	}
-
-	ID, err := uuid.Parse(params.UserID)
-	if err != nil {
-		respondWithError(rw, http.StatusBadRequest, "Couldn't parse ID", err)
 		return
 	}
 
@@ -47,7 +41,7 @@ func (cfg *apiConfig) handleCreateChirp(rw http.ResponseWriter, req *http.Reques
 
 	chirp, err := cfg.db.CreateChirp(req.Context(), database.CreateChirpParams{
 		Body:   cleanedBody,
-		UserID: ID,
+		UserID: params.UserID,
 	})
 	if err != nil {
 		respondWithError(rw, http.StatusInternalServerError, "Error creating chirp: ", err)
@@ -110,4 +104,26 @@ func (cfg *apiConfig) handleGetChirps(rw http.ResponseWriter, req *http.Request)
 	}
 
 	respondWithJSON(rw, http.StatusOK, chirpsMapped)
+}
+
+func (cfg *apiConfig) handleGetChirp(rw http.ResponseWriter, req *http.Request) {
+	chirpID := req.PathValue("chirpID")
+	ID, err := uuid.Parse(chirpID)
+	if err != nil {
+		respondWithError(rw, http.StatusBadRequest, "Invalid chirp ID", err)
+		return
+	}
+	dbChirp, err := cfg.db.GetChirp(req.Context(), ID)
+	if err != nil {
+		respondWithError(rw, http.StatusNotFound, "Chirp not found", err)
+		return
+	}
+
+	respondWithJSON(rw, http.StatusOK, Chirp{
+		ID:        dbChirp.ID,
+		CreatedAt: dbChirp.CreatedAt,
+		UpdatedAt: dbChirp.UpdatedAt,
+		Body:      dbChirp.Body,
+		UserID:    dbChirp.UserID,
+	})
 }
