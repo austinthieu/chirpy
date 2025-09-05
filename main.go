@@ -1,28 +1,49 @@
 package main
 
 import (
-	"fmt"
+	"database/sql"
 	"log"
 	"net/http"
+	"os"
 	"sync/atomic"
+
+	"github.com/austinthieu/chirpy/internal/database"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	db             *database.Queries
 }
 
 func main() {
 	const filepathRoot = "."
 	const port = "8080"
+
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	if dbURL == "" {
+		log.Fatal("DB_URL must be set")
+	}
+
+	dbConn, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("Error opening database: %s", err)
+	}
+	dbQueries := database.New(dbConn)
+
 	apiCfg := apiConfig{
 		fileserverHits: atomic.Int32{},
+		db:             dbQueries,
 	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app/", http.FileServer(http.Dir(filepathRoot)))))
-	mux.HandleFunc("GET /healthz", handleReadiness)
-	mux.HandleFunc("GET /metrics", apiCfg.handleServerHits)
-	mux.HandleFunc("POST /reset", apiCfg.handleResetServerHits)
+	mux.HandleFunc("GET /api/healthz", handleReadiness)
+	mux.HandleFunc("POST /api/validate_chirp", handleChirpValidate)
+	mux.HandleFunc("GET /admin/metrics", apiCfg.handleServerHits)
+	mux.HandleFunc("POST /admin/reset", apiCfg.handleResetServerHits)
 
 	server := &http.Server{
 		Addr:    ":" + port,
@@ -31,17 +52,4 @@ func main() {
 
 	log.Printf("Serving files from %s on port: %s\n", filepathRoot, port)
 	log.Fatal(server.ListenAndServe())
-}
-
-func (cfg *apiConfig) handleServerHits(rw http.ResponseWriter, req *http.Request) {
-	rw.Header().Add("Content-Type", "text/plain; charset=utf-8")
-	rw.WriteHeader(http.StatusOK)
-	rw.Write([]byte(fmt.Sprintf("Hits: %d", cfg.fileserverHits.Load())))
-}
-
-func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
-	return (http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cfg.fileserverHits.Add(1)
-		next.ServeHTTP(w, r)
-	}))
 }
