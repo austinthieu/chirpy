@@ -139,3 +139,43 @@ func (cfg *apiConfig) handleGetChirp(rw http.ResponseWriter, req *http.Request) 
 		UserID:    dbChirp.UserID,
 	})
 }
+
+func (cfg *apiConfig) handleDeleteChirp(rw http.ResponseWriter, req *http.Request) {
+	idFromPath := req.PathValue("chirpID")
+	chirpID, err := uuid.Parse(idFromPath)
+	if err != nil {
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	tokenString, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		rw.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	userID, err := auth.ValidateJWT(tokenString, cfg.jwtSecret)
+	if err != nil {
+		rw.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	chirp, err := cfg.db.GetChirp(req.Context(), chirpID)
+	if err != nil {
+		rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	if chirp.UserID != userID {
+		rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	err = cfg.db.DeleteChirp(req.Context(), chirp.ID)
+	if err != nil {
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	rw.WriteHeader(http.StatusNoContent)
+}
