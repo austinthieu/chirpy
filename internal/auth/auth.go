@@ -20,6 +20,11 @@ const (
 	TokenTypeAccess TokenType = "chirpy-access"
 )
 
+var (
+	ErrNoAuthHeaderIncluded = errors.New("no auth header incldued in request")
+	ErrMalformedHeader      = errors.New("malformed authorization header")
+)
+
 func HashPassword(password string) (string, error) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 5)
 	if err != nil {
@@ -77,11 +82,11 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 func GetBearerToken(headers http.Header) (string, error) {
 	authHeader := headers.Get("Authorization")
 	if authHeader == "" {
-		return "", errors.New("bearer token not found")
+		return "", ErrNoAuthHeaderIncluded
 	}
 	splitAuth := strings.Split(authHeader, " ")
 	if len(splitAuth) < 2 || splitAuth[0] != "Bearer" {
-		return "", errors.New("malformed authorizatrion header")
+		return "", ErrMalformedHeader
 	}
 
 	return splitAuth[1], nil
@@ -92,4 +97,17 @@ func MakeRefreshToken() (string, error) {
 	rand.Read(key)
 
 	return hex.EncodeToString(key), nil
+}
+
+func GetAPIKey(headers http.Header) (string, error) {
+	authHeader := headers.Get("Authorization")
+	if authHeader == "" {
+		return "", ErrNoAuthHeaderIncluded
+	}
+	splitAuth := strings.Split(authHeader, " ")
+	if len(splitAuth) < 2 || splitAuth[0] != "ApiKey" {
+		return "", ErrMalformedHeader
+	}
+
+	return splitAuth[1], nil
 }
