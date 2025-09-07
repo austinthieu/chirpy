@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -97,25 +98,52 @@ func cleanBody(body string) string {
 	return strings.Join(words, " ")
 }
 
-func (cfg *apiConfig) handleGetChirps(rw http.ResponseWriter, req *http.Request) {
-	chirps, err := cfg.db.GetChirps(req.Context())
+func (cfg *apiConfig) handlerChirpsRetrieve(w http.ResponseWriter, r *http.Request) {
+	dbChirps, err := cfg.db.GetChirps(r.Context())
 	if err != nil {
-		respondWithError(rw, http.StatusInternalServerError, "Error getting chirps", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't retrieve chirps", err)
 		return
 	}
 
-	chirpsMapped := make([]Chirp, len(chirps))
-	for i, chirp := range chirps {
-		chirpsMapped[i] = Chirp{
-			ID:        chirp.ID,
-			CreatedAt: chirp.CreatedAt,
-			UpdatedAt: chirp.UpdatedAt,
-			Body:      chirp.Body,
-			UserID:    chirp.UserID,
+	authorID := uuid.Nil
+	authorIDString := r.URL.Query().Get("author_id")
+	if authorIDString != "" {
+		authorID, err = uuid.Parse(authorIDString)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid author ID", err)
+			return
 		}
 	}
 
-	respondWithJSON(rw, http.StatusOK, chirpsMapped)
+	sortDirection := "asc"
+	sortDirectionParam := r.URL.Query().Get("sort")
+	if sortDirectionParam == "desc" {
+		sortDirection = "desc"
+	}
+
+	chirps := []Chirp{}
+	for _, dbChirp := range dbChirps {
+		if authorID != uuid.Nil && dbChirp.UserID != authorID {
+			continue
+		}
+
+		chirps = append(chirps, Chirp{
+			ID:        dbChirp.ID,
+			CreatedAt: dbChirp.CreatedAt,
+			UpdatedAt: dbChirp.UpdatedAt,
+			UserID:    dbChirp.UserID,
+			Body:      dbChirp.Body,
+		})
+	}
+
+	sort.Slice(chirps, func(i, j int) bool {
+		if sortDirection == "desc" {
+			return chirps[i].CreatedAt.After(chirps[j].CreatedAt)
+		}
+		return chirps[i].CreatedAt.Before(chirps[j].CreatedAt)
+	})
+
+	respondWithJSON(w, http.StatusOK, chirps)
 }
 
 func (cfg *apiConfig) handleGetChirp(rw http.ResponseWriter, req *http.Request) {
