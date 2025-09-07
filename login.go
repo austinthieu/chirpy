@@ -1,10 +1,13 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/austinthieu/chirpy/internal/auth"
+	"github.com/austinthieu/chirpy/internal/database"
 )
 
 func (cfg *apiConfig) handleLogin(rw http.ResponseWriter, req *http.Request) {
@@ -15,6 +18,8 @@ func (cfg *apiConfig) handleLogin(rw http.ResponseWriter, req *http.Request) {
 
 	type response struct {
 		User
+		Token        string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
 	}
 
 	decoder := json.NewDecoder(req.Body)
@@ -37,6 +42,28 @@ func (cfg *apiConfig) handleLogin(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, time.Hour)
+	if err != nil {
+		respondWithError(rw, http.StatusInternalServerError, "Couldn't make JWT token", err)
+		return
+	}
+
+	refreshToken, err := auth.MakeRefreshToken()
+	if err != nil {
+		respondWithError(rw, http.StatusInternalServerError, "Couldn't make refresh token", err)
+		return
+	}
+
+	_, err = cfg.db.AddNewRefreshToken(req.Context(), database.AddNewRefreshTokenParams{
+		Token:     refreshToken,
+		UserID:    user.ID,
+		RevokedAt: sql.NullTime{Time: time.Time{}, Valid: false},
+	})
+	if err != nil {
+		respondWithError(rw, http.StatusInternalServerError, "Couldn't add refresh token to database", err)
+		return
+	}
+
 	respondWithJSON(rw, http.StatusOK, response{
 		User: User{
 			ID:        user.ID,
@@ -44,5 +71,7 @@ func (cfg *apiConfig) handleLogin(rw http.ResponseWriter, req *http.Request) {
 			UpdatedAt: user.UpdatedAt,
 			Email:     user.Email,
 		},
+		Token:        token,
+		RefreshToken: refreshToken,
 	})
 }
